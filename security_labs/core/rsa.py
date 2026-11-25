@@ -1,3 +1,4 @@
+
 """Самостоятельная реализация RSA с PKCS#1 v1.5 для учебной работы."""
 
 from __future__ import annotations
@@ -17,16 +18,21 @@ PUBLIC_EXPONENT = 65537
 
 @dataclass(frozen=True)
 class PublicKey:
+    """Открытый ключ RSA с модулем n и экспонентой e."""
+
     n: int
     e: int = PUBLIC_EXPONENT
 
     @property
     def bytes_length(self) -> int:
+        """Возвращает длину модуля RSA в байтах."""
         return (self.n.bit_length() + 7) // 8
 
 
 @dataclass(frozen=True)
 class PrivateKey:
+    """Закрытый ключ RSA с параметрами для ускорения через CRT."""
+
     n: int
     e: int
     d: int
@@ -38,14 +44,17 @@ class PrivateKey:
 
     @property
     def public(self) -> PublicKey:
+        """Возвращает открытый ключ из закрытого."""
         return PublicKey(self.n, self.e)
 
     @property
     def bytes_length(self) -> int:
+        """Возвращает длину модуля RSA в байтах."""
         return (self.n.bit_length() + 7) // 8
 
 
 def generate_prime(bits: int, e: int = PUBLIC_EXPONENT, rounds: int = 32) -> int:
+    """Генерирует вероятно простое число заданной битовой длины."""
     if bits < 16:
         raise ValueError("длина простого должна быть не менее 16 бит")
     while True:
@@ -56,6 +65,7 @@ def generate_prime(bits: int, e: int = PUBLIC_EXPONENT, rounds: int = 32) -> int
 
 
 def from_primes(p: int, q: int, e: int = PUBLIC_EXPONENT) -> PrivateKey:
+    """Вычисляет параметры закрытого ключа RSA по числам p, q и e."""
     if p == q or p <= 2 or q <= 2:
         raise ValueError("требуются два различных нечётных простых")
     phi = (p - 1) * (q - 1)
@@ -64,6 +74,7 @@ def from_primes(p: int, q: int, e: int = PUBLIC_EXPONENT) -> PrivateKey:
 
 
 def generate_keypair(bits: int = DEFAULT_BITS, e: int = PUBLIC_EXPONENT) -> PrivateKey:
+    """Генерирует два простых числа и формирует пару ключей RSA."""
     if bits < 512 or bits % 2:
         raise ValueError("длина RSA-ключа должна быть чётной и не менее 512 бит")
     p = generate_prime(bits // 2, e)
@@ -74,13 +85,14 @@ def generate_keypair(bits: int = DEFAULT_BITS, e: int = PUBLIC_EXPONENT) -> Priv
 
 
 def encrypt_integer(key: PublicKey, message: int) -> int:
+    """Шифрует целое число открытым ключом по формуле c = m^e mod n."""
     if not 0 <= message < key.n:
         raise ValueError("сообщение должно быть в диапазоне [0, n)")
     return mod_pow(message, key.e, key.n)
 
 
 def decrypt_integer(key: PrivateKey, cipher: int) -> int:
-    """CRT уменьшает две степени примерно в четыре раза против c**d mod n."""
+    """Расшифровывает целое число закрытым ключом с использованием CRT."""
     if not 0 <= cipher < key.n:
         raise ValueError("шифртекст должен быть в диапазоне [0, n)")
     m_p = mod_pow(cipher, key.dp, key.p)
@@ -90,6 +102,7 @@ def decrypt_integer(key: PrivateKey, cipher: int) -> int:
 
 
 def _pad_pkcs1_v15(payload: bytes, block_size: int) -> bytes:
+    """Добавляет случайное дополнение PKCS#1 v1.5 к блоку данных."""
     padding_size = block_size - len(payload) - 3
     if padding_size < 8:
         raise ValueError("блок слишком велик для PKCS#1 v1.5")
@@ -100,6 +113,7 @@ def _pad_pkcs1_v15(payload: bytes, block_size: int) -> bytes:
 
 
 def _unpad_pkcs1_v15(encoded: bytes) -> bytes:
+    """Проверяет и удаляет дополнение PKCS#1 v1.5 после расшифрования."""
     if len(encoded) < 11 or encoded[:2] != b"\x00\x02":
         raise ValueError("неверное PKCS#1 v1.5 дополнение")
     delimiter = encoded.find(b"\x00", 2)
@@ -109,6 +123,7 @@ def _unpad_pkcs1_v15(encoded: bytes) -> bytes:
 
 
 def encrypt(key: PublicKey, data: bytes) -> bytes:
+    """Разбивает данные на блоки, дополняет и шифрует их открытым ключом."""
     block_size = key.bytes_length
     payload_size = block_size - 11
     chunks = [data[index:index + payload_size] for index in range(0, len(data), payload_size)] or [b""]
@@ -116,6 +131,7 @@ def encrypt(key: PublicKey, data: bytes) -> bytes:
 
 
 def decrypt(key: PrivateKey, ciphertext: bytes) -> bytes:
+    """Расшифровывает блоки RSA и восстанавливает исходные байты."""
     block_size = key.bytes_length
     if not ciphertext or len(ciphertext) % block_size:
         raise ValueError("шифртекст должен содержать целое число блоков RSA")
@@ -127,6 +143,7 @@ def decrypt(key: PrivateKey, ciphertext: bytes) -> bytes:
 
 
 def _write_json(path: Union[str, Path], content: dict[str, str], private: bool) -> None:
+    """Сохраняет JSON-файл и ограничивает права доступа для закрытого ключа."""
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(content, indent=2) + "\n", encoding="utf-8")
@@ -135,14 +152,17 @@ def _write_json(path: Union[str, Path], content: dict[str, str], private: bool) 
 
 
 def save_private(path: Union[str, Path], key: PrivateKey) -> None:
+    """Сохраняет параметры закрытого ключа RSA в JSON в шестнадцатеричном виде."""
     _write_json(path, {name: format(value, "x") for name, value in asdict(key).items()}, True)
 
 
 def save_public(path: Union[str, Path], key: PublicKey) -> None:
+    """Сохраняет открытый ключ RSA (n, e) в JSON."""
     _write_json(path, {"n": format(key.n, "x"), "e": format(key.e, "x")}, False)
 
 
 def load_public(path: Union[str, Path]) -> PublicKey:
+    """Загружает открытый ключ из JSON и проверяет его параметры."""
     raw = json.loads(Path(path).read_text(encoding="utf-8"))
     key = PublicKey(int(raw["n"], 16), int(raw["e"], 16))
     if key.n <= 3 or key.n % 2 == 0 or not 1 < key.e < key.n:
@@ -151,10 +171,10 @@ def load_public(path: Union[str, Path]) -> PublicKey:
 
 
 def load_private(path: Union[str, Path]) -> PrivateKey:
+    """Загружает закрытый ключ из JSON и проверяет согласованность параметров."""
     raw = json.loads(Path(path).read_text(encoding="utf-8"))
     names = {field.name for field in PrivateKey.__dataclass_fields__.values()}
-    # The reference project calls the equivalent CRT coefficient ``qinv``.
-    # Accept it so its saved RSA-32768 key can be verified without regeneration.
+    # Поддержка альтернативного имени коэффициента CRT из эталонного проекта.
     if "qinv" in raw and "q_inverse" not in raw:
         raw["q_inverse"] = raw.pop("qinv")
     if set(raw) != names:
